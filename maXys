@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+# PROVIDE: maXys
+# REQUIRE: NETWORK
+# REQUIRE: DAEMON %%RCLDCONFIG%%
+# BEFORE: LOGIN
+# KEYWORD: shutdown
+#
+# Add the following line to /etc/rc.conf to enable maXys:
+#
+# maXys_enable="YES"
+#
+
+# Version: 2014.01.27
+
+. /etc/rc.subr
+
+name="maXys"
+rcvar=maXys_enable
+
+load_rc_config $name
+
+: ${maXys_enable="NO"}
+
+command_interpreter="/usr/local/bin/python2"
+command="/usr/local/etc/maXys/maXys.py"
+command_args="$1"
+start_precmd="maXys_prestart"
+stop_postcmd="maXys_poststop"
+maXys_pidfile="/var/run/maXys.pid" # Do not change it, pls!
+
+maXys_prestart() {
+    chk_pid=`check_pidfile $maXys_pidfile $command_interpreter` # Getting PID of process. If no such process PID will be empty.
+    if [ "$chk_pid" == "" ]; then				# If empty PID ...
+        {
+        if [ -f $maXys_pidfile ]; then				# ... checking PID-file presence. If file exists...
+            {
+            /bin/rm -f $maXys_pidfile				# ... remove this file.
+            }
+        fi
+        }
+    fi
+    }
+
+
+maXys_poststop() {
+    if [ -f $maXys_pidfile ]; then # Checking PID-file presence. If file exists...
+        {
+        /bin/rm -f $maXys_pidfile # ... remove this file
+        }
+    fi
+    }
+
+run_rc_command "$1"
