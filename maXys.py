@@ -1,10 +1,10 @@
 #!/usr/local/bin/python2
 #coding=UTF8
-#version 1.5.0 (2015.10.12)
+#version 2.6.23 (2016.06.23)
 
 import sys, time, socket, struct, MySQLdb, urllib2, logging, xmpp
 from daemon import Daemon
-from mconfig import interface, sysport, macport, logsys, logmac, logmaXys
+from mconfig import interface_ip, sysport, macport, logsys, logmac, logmaXys
 from mconfig import mysql_addr, mysql_user, mysql_pass, mysql_base, mysql_query
 from mconfig import mysql_addr_w, mysql_user_w, mysql_pass_w, mysql_base_w
 from mconfig import mysql_stbl_w, mysql_mtbl_w, apex_m_url, apex_s_url
@@ -62,9 +62,9 @@ def MT_Prepare_Data(macdata):
     # Дополнительно делаем проверку на 'битый' пакет. Если ожидаемых данных нет, ничего не произойдет
     try:
 	if macdata[0]+macdata[1] == '040A':
-	    mt_act  = int(macdata[2],10)    # - 'Действие' (или тип события). Бывает Add(1), Remove(2) и Move(3)
+	    mt_act  = int(macdata[2], 10)   # - 'Действие' (или тип события). Бывает Add(1), Remove(2) и Move(3)
 	    mt_mac  = ''.join(macdata[3:9]) # - MAC-адрес
-	    mt_port = int(macdata[10],16)   # - Номер порта
+	    mt_port = int(macdata[10], 16)  # - Номер порта
     except:
 	pass
     # Если 'Действие' в ожидаемом диапазоне, длина MAC-адреса равна 12 и порт определен, возвращаем эти данные
@@ -76,18 +76,14 @@ def MT_Prepare_Data(macdata):
 
 # Функция, определяющая тип события и обрезающая спецсимволы вида '<130>'
 def SL_Prepare_Data(sysdata):
-    sl_type = ""; sl_data = '';
+    sl_type = 0; sl_data = sysdata;
     # Обрезаем спецсимволы в начале строки
-    if sysdata[0:3] == '<13': sl_data = sysdata[5:]
-    if ('INFO:' in sl_data) & (sl_type == ''): sl_type = 1 # - Тип 'INFO'
-    if ('WARN:' in sl_data) & (sl_type == ''): sl_type = 2 # - Тип 'WARN'
-    if ('CRIT:' in sl_data) & (sl_type == ''): sl_type = 3 # - Тип 'CRIT'
-    # Если тип в ожидаемом диапазоне и данные не пусты, возвращаем тип и данные, обрезая данные до 250 символов
-    if (sl_type in [1, 2, 3]) & (sl_data != ''):
-	return sl_type, sl_data[0:250]
-    # Если же найдено что-то непонятное, возвращаем 'False' во всех случаях
-    else:
-	return False, False
+    if sysdata[0:2] == '<1': sl_data = sysdata[5:]
+    if ('INFO:' in sl_data) & (sl_type == 0): sl_type = 1 # - Тип 'INFO'
+    if ('WARN:' in sl_data) & (sl_type == 0): sl_type = 2 # - Тип 'WARN'
+    if ('CRIT:' in sl_data) & (sl_type == 0): sl_type = 3 # - Тип 'CRIT'
+    # Возвращаем тип и данные, обрезая их до 250 символов
+    return sl_type, sl_data[0:250]
 
 # Функция для получения списка устройств из базы MySQL
 def GetDevicesFromMySQL():
@@ -96,11 +92,11 @@ def GetDevicesFromMySQL():
 	mysql_db = MySQLdb.connect(host=mysql_addr, user=mysql_user, passwd=mysql_pass, db=mysql_base, connect_timeout=2)
     # Если возникла ошибка при подключении пишем в лог об ошибке и возвращаем пустой массив
     except MySQLdb.Error as err:
-	xlogger.info("MySQL Error ('%s'): %s",mysql_addr,err.args[1])
+	xlogger.info("MySQL Error ('%s'): %s", mysql_addr, err.args[1])
 	return {'0':0}
     # Если ошибок не было пишем в лог об успешном подключении
     else:
-	xlogger.info("Connection for MySQL Server '%s' (Read) established",mysql_addr)
+	xlogger.info("Connection for MySQL Server '%s' (Read) established", mysql_addr)
 	# Создаем 'курсор'. (Особая MySQLdb-шная магия)
 	mysql_cr   = mysql_db.cursor()
 	# Выполняем запрос к базе
@@ -108,17 +104,17 @@ def GetDevicesFromMySQL():
 	    mysql_cr.execute(mysql_query)
 	# Если возникла ошибка при выполнении запроса пишем в лог об ошибке возвращаем пустой массив
 	except MySQLdb.Error as err:
-	    xlogger.info("MySQL Read-Query failed: %s",err.args[1]);
+	    xlogger.info("MySQL Read-Query failed: %s", err.args[1]);
 	    return {'0':0}
 	else:
 	    # Получаем все данные из 'курсора'
 	    mysql_data = mysql_cr.fetchall()
 	    # Пишем в лог об успешном запросе
-	    xlogger.info("MySQL Read-Query OK. %s rows found",len(mysql_data))
+	    xlogger.info("MySQL Read-Query OK. %s rows found", len(mysql_data))
 	    # Возвращаем словарь из полученных данных вида 'ip'=>'id'
 	    return dict(list(mysql_data))
 
-def PostDataToMySQL(cr,send_query):
+def PostDataToMySQL(cr, send_query):
     # Выполняем запрос к базе. Если возникла ошибка ничего не делаем. Если нет, сообщаем, что все хорошо
     try:
 	cr.execute(send_query)
@@ -163,7 +159,7 @@ class JabberBot:
         self.conn.Process(1)
 
     def SendMsg(self, msg):
-        self.conn.send(xmpp.protocol.Message(self.jcr,msg,'groupchat'))
+        self.conn.send(xmpp.protocol.Message(self.jcr, msg, 'groupchat'))
 
     def disconnect(self):
         self.conn.send(xmpp.Presence(typ = 'unavailable'))
@@ -217,7 +213,7 @@ def main():
 	    mysql_wready = False
 	# Если ошибок не было пишем в лог об успехе и создаем 'курсор'. (Особая MySQLdb-шная магия)
 	else:
-	    xlogger.info("Connection for MySQL Server '%s' (Write) established",mysql_addr_w)
+	    xlogger.info("Connection for MySQL Server '%s' (Write) established", mysql_addr_w)
 	    mysql_cr_w   = mysql_db_w.cursor()
 	    mysql_wready = True
 	
@@ -225,11 +221,11 @@ def main():
     syslog  = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # Пробуем открыть сокет для Syslog
     try:
-	syslog.bind((interface,sysport))
+	syslog.bind((interface_ip, sysport))
     # Обрабатываем возможную ошибку сокета (сокет уже занят):
     except socket.error as err:
 	# При возникновении ошибки делаем запись в логе и завершаем работу
-	xlogger.info("Syslog Error: %s. Exiting...",err.args[1])
+	xlogger.info("Syslog Error: %s. Exiting...", err.args[1])
 	sys.exit(2)
     # При отсутствии ошибки переводим сокет в режим non blocking
     else:
@@ -239,11 +235,11 @@ def main():
     mactrap = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # Пробуем открыть сокет для MacTrap
     try:
-	mactrap.bind((interface,macport))
+	mactrap.bind((interface_ip, macport))
     # Обрабатываем возможную ошибку сокета (сокет уже занят):
     except socket.error as err:
 	# При возникновении ошибки делаем запись в логе и завершаем работу
-	xlogger.info("MacTrap Error: %s. Exiting...",err.args[1])
+	xlogger.info("MacTrap Error: %s. Exiting...", err.args[1])
 	sys.exit(2)
     else: # При отсутствии ошибки переводим сокет в режим non blocking
 	mactrap.setblocking(0)
@@ -252,16 +248,16 @@ def main():
     jbot_ok = False
     if useJabber:
 	# jid - JID, jps - password, jcr - chat room, jnn - nickname
-	jbot = JabberBot(jid,jps,jcr,jnn)
+	jbot = JabberBot(jid, jps, jcr, jnn)
 	if jbot.connect():
 	    if jbot.auth():
 		jbot.joinroom()
 		jbot_ok = True
-		xlogger.info("Connection to Jabber '%s' established!",jid.split("@")[1])
+		xlogger.info("Connection to Jabber '%s' established!", jid.split("@")[1])
 	    else:
-		xlogger.info("Jabber Error: Can't login with ID '%s'!",jid.split("@")[0])
+		xlogger.info("Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
 	else:
-	    xlogger.info("Jabber Error: Can't connect to '%s'!",jid.split("@")[1])
+	    xlogger.info("Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
 
     # Выполняем бесконечный цикл
     while True:
@@ -271,7 +267,7 @@ def main():
 	    if (m_chain>1):
 		# Если включена запись в MySQL:
 		if (write_to_mysql == True & mysql_wready == True):
-		    if (PostDataToMySQL(mysql_cr_w,m_send_query[:-1]+";") == True):
+		    if (PostDataToMySQL(mysql_cr_w, m_send_query[:-1]+";") == True):
 			# Компенсируем автоматический инкремент счетчиков, отнимая единицу при подсчете
 			m_msql_cnt += 1*m_chain-1
 		# Если включена запись в Oracle:
@@ -286,7 +282,7 @@ def main():
 	    if (s_chain>1):
 		# Если включена запись в MySQL:
 		if (write_to_mysql == True & mysql_wready == True):
-		    if (PostDataToMySQL(mysql_cr_w,s_send_query[:-1]+";") == True):
+		    if (PostDataToMySQL(mysql_cr_w, s_send_query[:-1]+";") == True):
 			# Компенсируем автоматический инкремент счетчиков, отнимая единицу при подсчете
 			s_msql_cnt += 1*s_chain-1
 		# Если включена запись в Oracle:
@@ -308,17 +304,17 @@ def main():
 			if jbot.auth():
 			    jbot.joinroom()
 			    jbot_ok = True
-			    xlogger.info("Connection to Jabber '%s' established!",jid.split("@")[1])
+			    xlogger.info("Connection to Jabber '%s' established!", jid.split("@")[1])
 			else:
-			    xlogger.info("Jabber Error: Can't login with ID '%s'!",jid.split("@")[0])
+			    xlogger.info("Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
 		    else:
-			xlogger.info("Jabber Error: Can't connect to '%s'!",jid.split("@")[1])
+			xlogger.info("Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
 		if jbot_ok:
 		    jbot.proc()
 
 	    # Пишем в лог общее количество записей и количество записей, успешно переданных в разлиные СУБД
-	    xlogger.info("Syslog messages: recieved %s, sended to MySQL %s, sended to Oracle %s",s_cnt,s_msql_cnt,s_apex_cnt)
-	    xlogger.info("MAC Notification messages: recieved %s, sended to MySQL %s, sended to Oracle %s",m_cnt,m_msql_cnt,m_apex_cnt)
+	    xlogger.info("Syslog messages: recieved %s, sended to MySQL %s, sended to Oracle %s", s_cnt, s_msql_cnt, s_apex_cnt)
+	    xlogger.info("MAC Notification messages: recieved %s, sended to MySQL %s, sended to Oracle %s", m_cnt, m_msql_cnt, m_apex_cnt)
 	    if (useJabber and s_jbbr_cnt>0):
 		xlogger.info("Jabber (Syslog) messages sended: %s", s_jbbr_cnt)
 	    # Обнуляем счетчики результатов
@@ -351,7 +347,7 @@ def main():
 		    mysql_wready = False
 		# Если ошибок не было пишем в лог об успехе и создаем 'курсор'. (Особая MySQLdb-шная магия)
 		else:
-		    xlogger.info("Connection for MySQL Server '%s' (Write) established",mysql_addr_w)
+		    xlogger.info("Connection for MySQL Server '%s' (Write) established", mysql_addr_w)
 		    mysql_cr_w   = mysql_db_w.cursor()
 		    mysql_wready = True
 
@@ -375,25 +371,25 @@ def main():
 		dev_ip = str(IP2Long(macaddr[0]))
 		# Если ID устройства неизвестно, сообщаем об этом в лог
 		if (dev_id == 0) & (len(devices)>0):
-		    xlogger.info("MacTrap NOTIFY: Recieved MAC Notification-message from %s, but this device not found in database",macaddr[0])
+		    xlogger.info("MacTrap NOTIFY: Recieved MAC Notification-message from %s, but this device not found in database", macaddr[0])
 		# Если включена запись в log, формируем строку для лог-файла и пишем данные в лог
 		if (write_to_log == True):
-		    mlogger.info(" %s%s%s  %s %s  %s",dev_id.rjust(5),dev_ip.rjust(12),mt_act,mt_mac,str(mt_port).rjust(3),int(time.time()))
+		    mlogger.info(" %s%s%s  %s %s  %s", dev_id.rjust(5), dev_ip.rjust(12), mt_act, mt_mac, str(mt_port).rjust(3), int(time.time()))
 
 		# Если цепочка пустая, формируем начало запроса
 		if (m_chain==1):
-		    m_send_query = "insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.action,{1}.mac,{1}.port,{1}.datetime) values ".format(mysql_base_w,mysql_mtbl_w)
+		    m_send_query = "insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.action,{1}.mac,{1}.port,{1}.datetime) values ".format(mysql_base_w, mysql_mtbl_w)
 		    m_apexurl=apex_m_url+apex_m_query.encode("hex")
 		# Достраиваем запрос для MySQL
-		m_send_query+="('{0}','{1}','{2}','{3}','{4}','{5}'),".format(dev_id,dev_ip,mt_act,mt_mac,mt_port,int(time.time()))
+		m_send_query+="('{0}','{1}','{2}','{3}','{4}','{5}'),".format(dev_id, dev_ip, mt_act, mt_mac, mt_port, int(time.time()))
 		# Достраиваем ссылку для Oracle Apex
-		m_apexurl+="SELECT {0},{1},{2},{3},'{4}',{5} FROM dual UNION ALL ".format(int(time.time()),dev_id,dev_ip,mt_port,mt_mac,mt_act).encode("hex")
+		m_apexurl+="SELECT {0},{1},{2},{3},'{4}',{5} FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, mt_port, mt_mac, mt_act).encode("hex")
 		# Если цепочка имеет максимальное значение данных или истек таймаут сбора данных:
 		if ((m_chain>=max_chain) or (int(time.time())-m_ctimer>=chain_timeout)):
 		    # Если включена запись в MySQL:
 		    if (write_to_mysql == True & mysql_wready == True):
 			# Если запрос на запись данных в базу MySQL выполнен успешно:
-			if (PostDataToMySQL(mysql_cr_w,m_send_query[:-1]+";") == True):
+			if (PostDataToMySQL(mysql_cr_w, m_send_query[:-1]+";") == True):
 			    # Увеличиваем значение счетчика успешных записей в MySQL для mactrap
 			    m_msql_cnt += 1*m_chain
 		    # Если включена запись в Oracle:
@@ -418,7 +414,7 @@ def main():
 	else:
 	    sl_type, sysdata = SL_Prepare_Data(sysdata)
 	    # Если данные обработы корректно:
-	    if (sl_type!=False) & (sysdata!=False):
+	    if len(sysdata) > 0:
 		# Увеличиваем значение счетчика для syslog
 		s_cnt += 1
 		# Определяем идентификатор устройства
@@ -430,26 +426,26 @@ def main():
 		dev_ip = str(IP2Long(sysaddr[0]))
 		# Если ID устройства неизвестно, сообщаем об этом в лог
 		if (dev_id == 0) & (len(devices)>0):
-		    xlogger.info("SysLog  NOTIFY: Recieved SysLog-message from %s, but this device not found in database",sysaddr[0])
+		    xlogger.info("SysLog  NOTIFY: Recieved SysLog-message from %s, but this device not found in database", sysaddr[0])
 		# Если включена запись в log, Формируем строку для лог-файла и пишем данные в лог
 		if (write_to_log == True):
-		    slogger.info(" %s%s  %s  %s  %s",dev_id.rjust(5),dev_ip.rjust(12),int(time.time()),sl_type,sysdata)
+		    slogger.info(" %s%s  %s  %s  %s", dev_id.rjust(5), dev_ip.rjust(12), int(time.time()), sl_type, sysdata)
 
 		# Если цепочка пустая, формируем запрос для записи в базу данных и помещаем в него данные:
 		if (s_chain==1):
-		    s_send_query = ("insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.type,{1}.data,{1}.datetime) values ").format(mysql_base_w,mysql_stbl_w)
+		    s_send_query = ("insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.type,{1}.data,{1}.datetime) values ").format(mysql_base_w, mysql_stbl_w)
 		    s_apexurl=apex_s_url+apex_s_query.encode("hex")
 		# Достраиваем запрос для MySQL
-		s_send_query+="('{0}','{1}','{2}',SUBSTR('{3}',1,160),'{4}'),".format(dev_id,dev_ip,sl_type,sysdata,int(time.time()))
+		s_send_query+="('{0}','{1}','{2}',SUBSTR('{3}',1,160),'{4}'),".format(dev_id, dev_ip, sl_type, sysdata, int(time.time()))
 		# Достраиваем ссылку для Oracle Apex
-		s_apexurl+="SELECT {0},{1},{2},{3},'{4}' FROM dual UNION ALL ".format(int(time.time()),dev_id,dev_ip,sl_type,sysdata).encode("hex")
+		s_apexurl+="SELECT {0},{1},{2},{3},'{4}' FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, sl_type, sysdata).encode("hex")
 
 		# Если цепочка имеет максимальное значение данных или истек таймаут сбора данных:
 		if ((s_chain>=max_chain) or (int(time.time())-s_ctimer>=chain_timeout)):
 		    # Если включена запись в MySQL:
 		    if (write_to_mysql == True & mysql_wready == True):
 			# Если запрос на запись данных в базу MySQL выполнен успешно:
-			if (PostDataToMySQL(mysql_cr_w,s_send_query[:-1]+";") == True):
+			if (PostDataToMySQL(mysql_cr_w, s_send_query[:-1]+";") == True):
 			    # Увеличиваем значение счетчика успешных записей в MySQL для syslog
 			    s_msql_cnt += 1*s_chain
 		    # Если включена запись в Oracle:
@@ -491,7 +487,7 @@ class MyDaemon(Daemon):
 	main()
 
 if __name__ == "__main__":
-    daemon = MyDaemon('/var/run/maXys.pid','/dev/null',logmaXys,logmaXys)
+    daemon = MyDaemon('/var/run/maXys.pid', '/dev/null', logmaXys, logmaXys)
     if len(sys.argv) == 2:
 	if   'start'     == sys.argv[1]:
 	    daemon.start()

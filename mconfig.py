@@ -1,11 +1,11 @@
 #coding=UTF8
 ## Общие настройки программы
-# Интерфейс, на котором будет работать демон
-interface=""
+# IP-адрес интерфейса, на котором будет работать демон
+interface_ip = ""
 # UDP-порт для syslog-сообщений
-sysport=7514
+sysport      = 7514
 # UDP-порт для snmptrap-сообщений
-macport=162
+macport      = 162
 # Лог-файл для syslog
 logsys   = "/var/log/maXys/syslog.log"
 # Лог-файл для mactrap
@@ -59,7 +59,7 @@ jps = "password"
 jcr = "nebula@conference.jabber.localhost"
 jnn = "maXys"
 
-## Список слов для генерации уведомлений в Jabber.
+## Список слов для генерации уведомлений в Jabber
 # Если слова из первого списка найдены в строке syslog, то эта строка будет передана в jabber
 # Если слова из второго списка найдены в той же строке, то эта строка не будет передана в jabber
 systojab_inc = ['execute', 'failed']
