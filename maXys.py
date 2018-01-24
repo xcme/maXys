@@ -1,44 +1,49 @@
-#!/usr/local/bin/python2
+#!/usr/bin/env python2
 #coding=UTF8
-#version 2.6.23 (2016.06.23)
+#version 4.1.24 (2018.01.24)
+# Формат 'version': <текущий год - год начала разработки>.<месяц последнего изменения>.<день последнего изменения>
 
-import sys, time, socket, struct, MySQLdb, urllib2, logging, xmpp
+import sys, time, socket, struct, MySQLdb, urllib2, logging, xmpp, psycopg2
+from logging.handlers import RotatingFileHandler
 from daemon import Daemon
-from mconfig import interface_ip, sysport, macport, logsys, logmac, logmaXys
-from mconfig import mysql_addr, mysql_user, mysql_pass, mysql_base, mysql_query
-from mconfig import mysql_addr_w, mysql_user_w, mysql_pass_w, mysql_base_w
-from mconfig import mysql_stbl_w, mysql_mtbl_w, apex_m_url, apex_s_url
-from mconfig import apex_m_query, apex_s_query, write_to_log, write_to_mysql
-from mconfig import write_to_oracle, max_chain, chain_timeout, interval
-from mconfig import useJabber, jid, jps, jcr, jnn, systojab_inc, systojab_exc
+from mconfig import interface_ip, sysport, macport, logsys, logmac, logmaXys, log_size, log_backupcount, interval
+from mconfig import mysql_addr, mysql_user, mysql_pass, mysql_base
+from mconfig import postgresql_addr, postgresql_user, postgresql_pass, postgresql_base, use_postgresql
+from mconfig import db_query
+from mconfig import mysql_addr_w, mysql_user_w, mysql_pass_w, mysql_base_w, mysql_stbl_w, mysql_mtbl_w
+from mconfig import apex_m_url, apex_s_url, apex_m_query, apex_s_query
+from mconfig import write_to_log, write_to_mysql, write_to_oracle, max_chain, chain_timeout
+from mconfig import useJabber, jid, jps, jcr, jnn
+from mconfig import systojab_inc, systojab_exc
 
 # ------- Настройка системы логирования  -------
 
 # В этом блоке настраиваем logger'ы, чтобы писать логи в разные файлы
-# Всего делаем 3 logger'а для syslog (s), mactrap (m) и maXys (x)
-formatter_s = logging.Formatter('%(asctime)s %(message)s')
-formatter_m = logging.Formatter('%(asctime)s %(message)s')
-formatter_x = logging.Formatter('%(asctime)s %(message)s')
+# Всего делаем 3 ротируемых logger'а для syslog (s), mactrap (m) и maXys (x)
+log_s_handler = RotatingFileHandler(logsys,   maxBytes = log_size, backupCount = log_backupcount)
+log_m_handler = RotatingFileHandler(logmac,   maxBytes = log_size, backupCount = log_backupcount)
+log_x_handler = RotatingFileHandler(logmaXys, maxBytes = log_size, backupCount = log_backupcount)
 
-log_s = logging.FileHandler(logsys)
-log_m = logging.FileHandler(logmac)
-log_x = logging.FileHandler(logmaXys)
+log_s_formatter = logging.Formatter('%(asctime)s maXys [%(process)d]: %(message)s')
+log_m_formatter = logging.Formatter('%(asctime)s maXys [%(process)d]: %(message)s')
+log_x_formatter = logging.Formatter('%(asctime)s maXys [%(process)d]: %(message)s')
 
-log_s.setFormatter(formatter_s)
-log_m.setFormatter(formatter_m)
-log_x.setFormatter(formatter_x)
+log_s_handler.setFormatter(log_s_formatter)
+log_m_handler.setFormatter(log_m_formatter)
+log_x_handler.setFormatter(log_x_formatter)
 
-slogger=logging.getLogger('s')
-mlogger=logging.getLogger('m')
-xlogger=logging.getLogger('x')
+slogger = logging.getLogger('s')
+mlogger = logging.getLogger('m')
+xlogger = logging.getLogger('x')
+
+slogger.addHandler(log_s_handler)
+mlogger.addHandler(log_m_handler)
+xlogger.addHandler(log_x_handler)
 
 slogger.setLevel(logging.INFO)
 mlogger.setLevel(logging.INFO)
 xlogger.setLevel(logging.INFO)
 
-slogger.addHandler(log_s)
-mlogger.addHandler(log_m)
-xlogger.addHandler(log_x)
 
 # ------- Конец настройки системы логирования  -------
 
@@ -85,34 +90,52 @@ def SL_Prepare_Data(sysdata):
     # Возвращаем тип и данные, обрезая их до 250 символов
     return sl_type, sl_data[0:250]
 
-# Функция для получения списка устройств из базы MySQL
-def GetDevicesFromMySQL():
-    # Пробуем подключиться к базе данных MySQL. Используем таймаут в 2 секунды
+# Функция для получения списка устройств из базы MySQL или PostgreSQL
+def GetDataFromDB():
+    xsql_data = { '0' : 0 }
+    # Пробуем подключиться к базе данных PostgreSQL либо MySQL. Используем таймаут в 2 секунды
     try:
-	mysql_db = MySQLdb.connect(host=mysql_addr, user=mysql_user, passwd=mysql_pass, db=mysql_base, connect_timeout=2)
-    # Если возникла ошибка при подключении пишем в лог об ошибке и возвращаем пустой массив
-    except MySQLdb.Error as err:
-	xlogger.info("MySQL Error ('%s'): %s", mysql_addr, err.args[1])
-	return {'0':0}
-    # Если ошибок не было пишем в лог об успешном подключении
-    else:
-	xlogger.info("Connection for MySQL Server '%s' (Read) established", mysql_addr)
-	# Создаем 'курсор'. (Особая MySQLdb-шная магия)
-	mysql_cr   = mysql_db.cursor()
-	# Выполняем запрос к базе
-	try:
-	    mysql_cr.execute(mysql_query)
-	# Если возникла ошибка при выполнении запроса пишем в лог об ошибке возвращаем пустой массив
-	except MySQLdb.Error as err:
-	    xlogger.info("MySQL Read-Query failed: %s", err.args[1]);
-	    return {'0':0}
+	if use_postgresql == True:
+	    db_conn = psycopg2.connect( host = postgresql_addr, user = postgresql_user, password = postgresql_pass, dbname = postgresql_base, connect_timeout = 2 )
 	else:
-	    # Получаем все данные из 'курсора'
-	    mysql_data = mysql_cr.fetchall()
-	    # Пишем в лог об успешном запросе
-	    xlogger.info("MySQL Read-Query OK. %s rows found", len(mysql_data))
-	    # Возвращаем словарь из полученных данных вида 'ip'=>'id'
-	    return dict(list(mysql_data))
+	    db_conn = MySQLdb.connect( host = mysql_addr, user = mysql_user, passwd = mysql_pass, db = mysql_base, connect_timeout = 2 )
+    # Если возникла ошибка при подключении, сообщаем об этом в лог и возвращаем пустой массив
+    except psycopg2.Error as p_err:
+	xlogger.info("ERROR: PostgreSQL Error (%s): %s", postgresql_addr, p_err.args)
+	return xsql_data
+    except MySQLdb.Error as m_err:
+	xlogger.info("ERROR: MySQL Error (%s): %s", mysql_addr, m_err.args[1])
+	return xsql_data
+    # Если ошибок не было, сообщаем в лог об успешном подключении и создаем 'курсор'
+    else:
+	if use_postgresql == True:
+	    xlogger.info("INFO: Connection to PostgreSQL Server '%s' established", postgresql_addr)
+	else:
+	    xlogger.info("INFO: Connection to MySQL Server '%s' established", mysql_addr)
+	db_cr = db_conn.cursor()
+
+	# Пробуем выполнить запрос к базе и получить все данные из 'курсора'
+	try:
+	    db_cr.execute(db_query)
+	    xsql_data = db_cr.fetchall()
+	# Если возникла ошибка при выполнении запроса, сообщаем об этом в лог и возвращаем пустой массив
+	except psycopg2.Error as p_err:
+	    xlogger.info("ERROR: PostgreSQL Query failed: %s", p_err.args)
+	    return xsql_data
+	except MySQLdb.Error as m_err:
+	    xlogger.info("ERROR: MySQL Query failed: %s", m_err.args[1])
+	    return xsql_data
+	# Если ошибок не возникло, сообщаем в лог об успешном подключении
+	else:
+	    if use_postgresql == True:
+		xlogger.info("INFO: PostgreSQL Query OK. %s rows found.", len(xsql_data))
+	    else:
+		xlogger.info("INFO: MySQL Query OK. %s rows found.", len(xsql_data))
+	# Закрываем подключение
+	finally:
+	    db_conn.close()
+    # Возвращаем словарь из полученных данных вида 'ip'=>'id'
+    return dict(list(xsql_data))
 
 def PostDataToMySQL(cr, send_query):
     # Выполняем запрос к базе. Если возникла ошибка ничего не делаем. Если нет, сообщаем, что все хорошо
@@ -166,7 +189,7 @@ class JabberBot:
 
     def isAlive(self):
         try:
-            self.conn.send(xmpp.Presence(status=None, show=None))
+            self.conn.send(xmpp.Presence(status = None, show = None))
             alive = True
         except IOError:
             alive = False
@@ -174,7 +197,7 @@ class JabberBot:
 
 def main():
     # Сообщаем в лог о запуске сервера
-    xlogger.info("- = + = - Daemon 'maXys' started - = + = -")
+    xlogger.info("INFO: Daemon 'maXys' started...")
 
     # Задаем счетчики результатов
     s_cnt    = 0; m_cnt    = 0;
@@ -197,7 +220,7 @@ def main():
     # Начальное значение таймера накопления данных mactrap
     m_ctimer = int(time.time())
     # Получаем список устройств из базы данных
-    devices = GetDevicesFromMySQL()
+    devices = GetDataFromDB()
 
     # Задаем начальное значение переменной, которая содержит статус подключения к MySQL-серверу
     mysql_wready = False
@@ -206,14 +229,14 @@ def main():
     if (write_to_mysql == True):
 	# Пробуем подключиться к базе данных MySQL. Используем таймаут в 1 секунду
 	try:
-	    mysql_db_w = MySQLdb.connect(host=mysql_addr_w, user=mysql_user_w, passwd=mysql_pass_w, db=mysql_base_w, connect_timeout=1)
+	    mysql_db_w = MySQLdb.connect(host = mysql_addr_w, user = mysql_user_w, passwd = mysql_pass_w, db = mysql_base_w, connect_timeout = 1)
 	# Если возникла ошибка, сообщаем об этом в лог
 	except:
-	    xlogger.info("Cannot connect to MySQL. The data will not be stored. :(")
+	    xlogger.info("ERROR: Can't connect to MySQL. The data will not be stored. :(")
 	    mysql_wready = False
-	# Если ошибок не было пишем в лог об успехе и создаем 'курсор'. (Особая MySQLdb-шная магия)
+	# Если ошибок не было пишем в лог об успехе и создаем 'курсор'
 	else:
-	    xlogger.info("Connection for MySQL Server '%s' (Write) established", mysql_addr_w)
+	    xlogger.info("INFO: Connection to MySQL Server '%s' established", mysql_addr_w)
 	    mysql_cr_w   = mysql_db_w.cursor()
 	    mysql_wready = True
 	
@@ -225,7 +248,7 @@ def main():
     # Обрабатываем возможную ошибку сокета (сокет уже занят):
     except socket.error as err:
 	# При возникновении ошибки делаем запись в логе и завершаем работу
-	xlogger.info("Syslog Error: %s. Exiting...", err.args[1])
+	xlogger.info("CRITICAL: Syslog Error: %s. Exiting...", err.args[1])
 	sys.exit(2)
     # При отсутствии ошибки переводим сокет в режим non blocking
     else:
@@ -239,7 +262,7 @@ def main():
     # Обрабатываем возможную ошибку сокета (сокет уже занят):
     except socket.error as err:
 	# При возникновении ошибки делаем запись в логе и завершаем работу
-	xlogger.info("MacTrap Error: %s. Exiting...", err.args[1])
+	xlogger.info("CRITICAL: MacTrap Error: %s. Exiting...", err.args[1])
 	sys.exit(2)
     else: # При отсутствии ошибки переводим сокет в режим non blocking
 	mactrap.setblocking(0)
@@ -253,11 +276,11 @@ def main():
 	    if jbot.auth():
 		jbot.joinroom()
 		jbot_ok = True
-		xlogger.info("Connection to Jabber '%s' established!", jid.split("@")[1])
+		xlogger.info("INFO: Connection to Jabber '%s' established", jid.split("@")[1])
 	    else:
-		xlogger.info("Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
+		xlogger.info("ERROR: Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
 	else:
-	    xlogger.info("Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
+	    xlogger.info("ERROR: Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
 
     # Выполняем бесконечный цикл
     while True:
@@ -304,19 +327,19 @@ def main():
 			if jbot.auth():
 			    jbot.joinroom()
 			    jbot_ok = True
-			    xlogger.info("Connection to Jabber '%s' established!", jid.split("@")[1])
+			    xlogger.info("INFO: Connection to Jabber '%s' established", jid.split("@")[1])
 			else:
-			    xlogger.info("Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
+			    xlogger.info("ERROR: Jabber Error: Can't login with ID '%s'!", jid.split("@")[0])
 		    else:
-			xlogger.info("Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
+			xlogger.info("ERROR: Jabber Error: Can't connect to '%s'!", jid.split("@")[1])
 		if jbot_ok:
 		    jbot.proc()
 
 	    # Пишем в лог общее количество записей и количество записей, успешно переданных в разлиные СУБД
-	    xlogger.info("Syslog messages: recieved %s, sended to MySQL %s, sended to Oracle %s", s_cnt, s_msql_cnt, s_apex_cnt)
-	    xlogger.info("MAC Notification messages: recieved %s, sended to MySQL %s, sended to Oracle %s", m_cnt, m_msql_cnt, m_apex_cnt)
+	    xlogger.info("INFO: Syslog messages: recieved %s, sended to MySQL %s, sended to Oracle %s", s_cnt, s_msql_cnt, s_apex_cnt)
+	    xlogger.info("INFO: MAC Notification messages: recieved %s, sended to MySQL %s, sended to Oracle %s", m_cnt, m_msql_cnt, m_apex_cnt)
 	    if (useJabber and s_jbbr_cnt>0):
-		xlogger.info("Jabber (Syslog) messages sended: %s", s_jbbr_cnt)
+		xlogger.info("INFO: Jabber (Syslog) messages sended: %s", s_jbbr_cnt)
 	    # Обнуляем счетчики результатов
 	    s_cnt    = 0; m_cnt    = 0;
 	    s_msql_cnt = 0; m_msql_cnt = 0;
@@ -325,7 +348,7 @@ def main():
 
 	    # Получаем новое значение таймера и делаем новый запрос в базу
 	    timer = int(time.time())
-	    devices_tmp = GetDevicesFromMySQL()
+	    devices_tmp = GetDataFromDB()
 	    # Если длина запроса составляет не менее 90% от длины предыдущего
 	    if (len(devices_tmp) > len(devices)*0.9):
 		# Помещаем новый список устройств в основную переменную
@@ -340,14 +363,14 @@ def main():
 		    pass
 		# Пробуем подключиться к базе данных MySQL. Используем таймаут в 1 секунду
 		try:
-		    mysql_db_w = MySQLdb.connect(host=mysql_addr_w, user=mysql_user_w, passwd=mysql_pass_w, db=mysql_base_w, connect_timeout=1)
+		    mysql_db_w = MySQLdb.connect(host = mysql_addr_w, user = mysql_user_w, passwd = mysql_pass_w, db = mysql_base_w, connect_timeout = 1)
 		# Если возникла ошибка, сообщаем об этом в лог
 		except:
-		    xlogger.info("Cannot connect to MySQL. The data will not be stored. :(")
+		    xlogger.info("ERROR: Can't connect to MySQL. The data will not be stored. :(")
 		    mysql_wready = False
 		# Если ошибок не было пишем в лог об успехе и создаем 'курсор'. (Особая MySQLdb-шная магия)
 		else:
-		    xlogger.info("Connection for MySQL Server '%s' (Write) established", mysql_addr_w)
+		    xlogger.info("INFO: Connection for MySQL Server '%s' established", mysql_addr_w)
 		    mysql_cr_w   = mysql_db_w.cursor()
 		    mysql_wready = True
 
@@ -359,7 +382,7 @@ def main():
 	else:
 	    mt_act, mt_mac, mt_port = MT_Prepare_Data(macdata)
 	    # Если данные обработы корректно:
-	    if (mt_act!=False) & (mt_mac!=False) & (mt_port!=False):
+	    if (mt_act != False) & (mt_mac != False) & (mt_port != False):
 		# Увеличиваем значение счетчика для mactrap
 		m_cnt += 1
 		# Определяем идентификатор устройства
@@ -371,21 +394,21 @@ def main():
 		dev_ip = str(IP2Long(macaddr[0]))
 		# Если ID устройства неизвестно, сообщаем об этом в лог
 		if (dev_id == 0) & (len(devices)>0):
-		    xlogger.info("MacTrap NOTIFY: Recieved MAC Notification-message from %s, but this device not found in database", macaddr[0])
+		    xlogger.info("WARNING: MacTrap NOTIFY: Recieved MAC Notification-message from %s, but this device not found in database", macaddr[0])
 		# Если включена запись в log, формируем строку для лог-файла и пишем данные в лог
 		if (write_to_log == True):
 		    mlogger.info(" %s%s%s  %s %s  %s", dev_id.rjust(5), dev_ip.rjust(12), mt_act, mt_mac, str(mt_port).rjust(3), int(time.time()))
 
 		# Если цепочка пустая, формируем начало запроса
-		if (m_chain==1):
+		if (m_chain == 1):
 		    m_send_query = "insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.action,{1}.mac,{1}.port,{1}.datetime) values ".format(mysql_base_w, mysql_mtbl_w)
-		    m_apexurl=apex_m_url+apex_m_query.encode("hex")
+		    m_apexurl = apex_m_url + apex_m_query.encode("hex")
 		# Достраиваем запрос для MySQL
-		m_send_query+="('{0}','{1}','{2}','{3}','{4}','{5}'),".format(dev_id, dev_ip, mt_act, mt_mac, mt_port, int(time.time()))
+		m_send_query += "('{0}','{1}','{2}','{3}','{4}','{5}'),".format(dev_id, dev_ip, mt_act, mt_mac, mt_port, int(time.time()))
 		# Достраиваем ссылку для Oracle Apex
-		m_apexurl+="SELECT {0},{1},{2},{3},'{4}',{5} FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, mt_port, mt_mac, mt_act).encode("hex")
+		m_apexurl += "SELECT {0},{1},{2},{3},'{4}',{5} FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, mt_port, mt_mac, mt_act).encode("hex")
 		# Если цепочка имеет максимальное значение данных или истек таймаут сбора данных:
-		if ((m_chain>=max_chain) or (int(time.time())-m_ctimer>=chain_timeout)):
+		if ((m_chain >= max_chain) or (int(time.time()) - m_ctimer >= chain_timeout)):
 		    # Если включена запись в MySQL:
 		    if (write_to_mysql == True & mysql_wready == True):
 			# Если запрос на запись данных в базу MySQL выполнен успешно:
@@ -404,10 +427,10 @@ def main():
 		    # Обнуляем значение для счетчика цепочки. Счетчик инкрементируется ниже в любом случае.
 		    m_chain  = 0
 		# Увеличиваем значение счетчика
-		m_chain+=1
+		m_chain += 1
 
 	# Пробуем получить данные с сокета syslog
-	try: sysdata, sysaddr =  syslog.recvfrom(512)
+	try: sysdata, sysaddr = syslog.recvfrom(512)
 	# Если данных нет возникнет ошибка. Ничего не делаем
 	except: pass
 	# Если ошибки не возникло, значит данные получены. Приступаем к их обработке
@@ -426,22 +449,21 @@ def main():
 		dev_ip = str(IP2Long(sysaddr[0]))
 		# Если ID устройства неизвестно, сообщаем об этом в лог
 		if (dev_id == 0) & (len(devices)>0):
-		    xlogger.info("SysLog  NOTIFY: Recieved SysLog-message from %s, but this device not found in database", sysaddr[0])
+		    xlogger.info("INFO: SysLog  NOTIFY: Recieved SysLog-message from %s, but this device not found in database", sysaddr[0])
 		# Если включена запись в log, Формируем строку для лог-файла и пишем данные в лог
 		if (write_to_log == True):
 		    slogger.info(" %s%s  %s  %s  %s", dev_id.rjust(5), dev_ip.rjust(12), int(time.time()), sl_type, sysdata)
 
 		# Если цепочка пустая, формируем запрос для записи в базу данных и помещаем в него данные:
-		if (s_chain==1):
+		if (s_chain == 1):
 		    s_send_query = ("insert into {0}.{1} ({1}.switch_id,{1}.ip,{1}.type,{1}.data,{1}.datetime) values ").format(mysql_base_w, mysql_stbl_w)
-		    s_apexurl=apex_s_url+apex_s_query.encode("hex")
+		    s_apexurl = apex_s_url + apex_s_query.encode("hex")
 		# Достраиваем запрос для MySQL
-		s_send_query+="('{0}','{1}','{2}',SUBSTR('{3}',1,160),'{4}'),".format(dev_id, dev_ip, sl_type, sysdata, int(time.time()))
+		s_send_query += "('{0}','{1}','{2}',SUBSTR('{3}',1,160),'{4}'),".format(dev_id, dev_ip, sl_type, sysdata, int(time.time()))
 		# Достраиваем ссылку для Oracle Apex
-		s_apexurl+="SELECT {0},{1},{2},{3},'{4}' FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, sl_type, sysdata).encode("hex")
-
+		s_apexurl += "SELECT {0},{1},{2},{3},'{4}' FROM dual UNION ALL ".format(int(time.time()), dev_id, dev_ip, sl_type, sysdata).encode("hex")
 		# Если цепочка имеет максимальное значение данных или истек таймаут сбора данных:
-		if ((s_chain>=max_chain) or (int(time.time())-s_ctimer>=chain_timeout)):
+		if ((s_chain >= max_chain) or (int(time.time()) - s_ctimer >= chain_timeout)):
 		    # Если включена запись в MySQL:
 		    if (write_to_mysql == True & mysql_wready == True):
 			# Если запрос на запись данных в базу MySQL выполнен успешно:
@@ -474,7 +496,7 @@ def main():
 			try:
 			    jbot.SendMsg(sysdata)
 			except:
-			    xlogger.info("Jabber Error: Can't send message!")
+			    xlogger.info("ERROR: Jabber Error: Can't send message!")
 			else:
 			    s_jbbr_cnt+=1
 

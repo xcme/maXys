@@ -1,0 +1,18 @@
+#
+# Systemd unit file for maXys
+#
+
+[Unit]
+Description=maXys
+Documentation=https://github.com/xcme/maXys
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/python2  /usr/local/etc/maXys/maXys.py start
+ExecStop=/usr/bin/python2   /usr/local/etc/maXys/maXys.py stop
+ExecReload=/usr/bin/python2 /usr/local/etc/maXys/maXys.py restart
+PIDFile=/var/run/maXys.pid
+
+[Install]
+WantedBy=multi-user.target

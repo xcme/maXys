@@ -12,20 +12,34 @@ logsys   = "/var/log/maXys/syslog.log"
 logmac   = "/var/log/maXys/mactrap.log"
 # Лог-файл демона
 logmaXys = "/var/log/maXys/maXys.log"
+# Максимальный размер лога до архивирования
+log_size        = 1048576
+# Количество архивных копий лога
+log_backupcount = 4
 # Интервал, через который данные об оборудовании будут обновляться
 interval = 120
 
 ## Настройки для MySQL-сервера, откуда будет забираться список устройств
-# (Адрес, пользователь, пароль, база данных, запрос, возвращающий <ip>,<id>)
+# (Адрес, пользователь, пароль, база данных)
 mysql_addr  = "mysql.localhost"
 mysql_user  = "user"
 mysql_pass  = "password"
-mysql_base  = "base"
-mysql_query = "SELECT ip, id FROM devices;"
+mysql_base  = "devices"
+
+# Настройки для PostgreSQL, откуда будет забираться список устройств
+# (Используется вместо MySQL, если use_postgresql установлен как true)
+postgresql_addr = "postgresql.localhost"
+postgresql_user = "user"
+postgresql_pass = "password"
+postgresql_base = "devices"
+use_postgresql  = False
+
+# Запрос к базе данных для получения списка устройств, возвращающий <ip> и <id>
+db_query = """SELECT ip, id FROM devices;"""
 
 ## Настройки для MySQL-сервер, куда будет сохраняться результат
 # (Адрес, пользователь, пароль, база данных, таблица для syslog, таблица для mactrap)
-mysql_addr_w = "mysql2.powernet"
+mysql_addr_w = "localhost"
 mysql_user_w = "macsys"
 mysql_pass_w = "macsyspassword"
 mysql_base_w = "maxys"
@@ -44,16 +58,16 @@ apex_s_query = "INSERT INTO c##table.syslog (DATETIME,SWITCH_ID,IP,TYPE_,DATA) "
 # Записывать ли данные в log?
 write_to_log    = False
 # Записывать ли данные в MySQL?
-write_to_mysql  = False
+write_to_mysql  = True
 # Записывать ли данные в Oracle?
-write_to_oracle = True
+write_to_oracle = False
 # Сколько данных отправлять в базу за один раз. Данные отправляются 'пачкой' при достижении этого значения
 max_chain     = 50
 # Через этот интервал данные все равно будут отправлены, даже если не достигнуто максимальное кол-во записей
 chain_timeout = 10
 
 ## Настройки Jabber
-useJabber = True
+useJabber = False
 jid = "maxys@jabber.localhost"
 jps = "password"
 jcr = "nebula@conference.jabber.localhost"
