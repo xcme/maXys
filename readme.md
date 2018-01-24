@@ -61,7 +61,7 @@ interval        | Интервал, через который данные об 
 #### Настройки для MySQL-сервера, откуда будет забираться список устройств
 Параметр      | Описание
 --------------|---------
-mysql_addr    | Адрес MySQL-сервера, откуда будет забираться список
+mysql_addr    | Адрес MySQL-сервера, откуда будет забираться список устройств
 mysql_user    | Имя пользователя
 mysql_pass    | Пароль
 mysql_base    | Имя базы данных
@@ -69,7 +69,7 @@ mysql_base    | Имя базы данных
 #### Настройки для PostgreSQL-сервера, откуда будет забираться список устройств
 Параметр        | Описание
 --------------- | --------
-postgresql_addr | Адрес PostgreSQL-сервера, откуда будет забираться список
+postgresql_addr | Адрес PostgreSQL-сервера, откуда будет забираться список устройств
 postgresql_user | Имя пользователя
 postgresql_pass | Пароль
 postgresql_base | Имя базы данных
@@ -97,6 +97,7 @@ apex_m_url    | URL для Oracle APEX для отправки MAC-notify соо
 apex_m_query  | Начало запроса для APEX для MAC-notify сообщений, например "INSERT INTO c##table.mactrap (DATETIME,SWITCH_ID,IP,PORT,MAC,ACTION) "
 apex_s_url    | URL для Oracle APEX для отправки Syslog сообщений, например "http://oracledb.localhost:8082/apex/f?p=ins:1:::::QUERY:"
 apex_s_query  |  Начало запроса для APEX для Syslog сообщений, например "INSERT INTO c##table.syslog (DATETIME,SWITCH_ID,IP,TYPE_,DATA) "
+
 \*Настройка Oracle APEX для работы с **maXys** не является частью данного руководства. Под FreeBSD нет нативных инструментов для работы с Oracle, поэтому **maXys** использует Oracle APEX как своеобразный "шлюз" к базе Oracle.
 
 #### Настройки логирования
